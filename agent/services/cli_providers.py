@@ -95,7 +95,7 @@ ROLES = {
     },
 }
 
-_ROLE_DEFAULTS = {"subtitle_translation": "codex", "prompt_suggestion": "codex"}
+_ROLE_DEFAULTS = {"subtitle_translation": "codex", "prompt_suggestion": "codex", "scriptwriter": "codex"}
 _CODEX_APP = Path("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
 
 

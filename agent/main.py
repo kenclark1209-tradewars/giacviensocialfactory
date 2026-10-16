@@ -33,6 +33,7 @@ from agent.api.models import router as models_router
 from agent.api.providers import router as providers_router
 from agent.api.codex_auth import router as codex_auth_router
 from agent.api.prompt_suggestions import router as prompt_suggestions_router
+from agent.api.remix import router as remix_router
 from agent.api.stickman import router as stickman_router
 from agent.api.active_project import router as active_project_router
 from agent.worker.processor import get_worker_controller
@@ -165,6 +166,7 @@ app.include_router(models_router)
 app.include_router(providers_router)
 app.include_router(codex_auth_router)
 app.include_router(prompt_suggestions_router, prefix="/api")
+app.include_router(remix_router, prefix="/api")
 app.include_router(stickman_router, prefix="/api")
 app.include_router(active_project_router)
 
