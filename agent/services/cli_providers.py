@@ -93,6 +93,10 @@ ROLES = {
         "label": "Gợi ý prompt Studio",
         "description": "Đề xuất prompt ảnh và video 8 giây để bạn xem, sửa rồi áp dụng.",
     },
+    "scriptwriter": {
+        "label": "Viết kịch bản Remix",
+        "description": "Soạn kịch bản và chia cảnh cho pipeline Remix từ link (nút “Nhờ AI soạn hộ”).",
+    },
 }
 
 _ROLE_DEFAULTS = {"subtitle_translation": "codex", "prompt_suggestion": "codex", "scriptwriter": "codex"}
