@@ -3,10 +3,12 @@
 ## Unreleased
 
 - Add "Remix from a link" pipeline: paste a YouTube / TikTok / Reels / web link
-  to extract public metadata (oEmbed, OpenGraph, captions), AI-rewrite it into
-  original scenes in 6 tones, generate clips in 8 recommended animation styles,
-  then build the final MP4 with AI voiceover, music and burned-in subtitles
-  (`POST /api/remix/extract|plan|build`, dashboard card, `/fk-remix-link` skill).
+  to extract public metadata (oEmbed, OpenGraph, captions), bring your own
+  script (e.g. written with your own ChatGPT — the AI only splits it into
+  scenes without rewriting your voice) or let the AI draft one, generate clips
+  in 8 recommended animation styles, then build the final MP4 with AI voiceover,
+  music and burned-in subtitles
+  (`POST /api/remix/extract|rewrite|plan|build`, dashboard card, `/fk-remix-link` skill).
 - Add maintainer-supplied previews for illustrated moral stories, stickman videos,
   and 2D family stories, alongside timeline and style-library screenshots.
 - Highlight the drag-and-drop editing workspace and short-form storytelling in

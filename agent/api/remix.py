@@ -16,7 +16,7 @@ from agent.db import crud as db_crud
 from agent.materials import get_material
 from agent.services.flow_client import get_flow_client
 from agent.services.link_extract import LinkContent, extract_link
-from agent.services.remix_plan import TONES, plan_remix_script
+from agent.services.remix_plan import TONES, plan_remix_script, rewrite_script, structure_script
 from agent.api.requests import BatchRequestCreate, create_batch
 from agent.models.request import RequestCreate
 from agent.api.tts import narrate_video
@@ -32,6 +32,12 @@ class ExtractRequest(BaseModel):
     url: str = Field(min_length=8, max_length=2000)
 
 
+class RewriteRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    tone: str = "storytelling"
+    language: str = Field(default="vi", max_length=8)
+
+
 class PlanRequest(BaseModel):
     url: str = Field(min_length=8, max_length=2000)
     project_id: Optional[str] = None
@@ -41,6 +47,9 @@ class PlanRequest(BaseModel):
     scene_count: int = Field(default=4, ge=1, le=8)
     orientation: Literal["VERTICAL", "HORIZONTAL"] = "VERTICAL"
     voice_template: Optional[str] = Field(default=None, max_length=64)
+    script: Optional[str] = Field(default=None, max_length=8000,
+        description="User-written script (e.g. from their own ChatGPT). When provided, "
+                    "the AI only splits it into scenes without rewriting the voice.")
 
 
 class BuildRequest(BaseModel):
@@ -74,9 +83,33 @@ async def extract(body: ExtractRequest):
     return content.to_dict()
 
 
+@router.post("/rewrite")
+async def rewrite(body: RewriteRequest):
+    """Step 2a — AI rewrites the extracted content into a full script for the user to review/edit.
+
+    Skip this entirely when the user pastes their own script (e.g. written with their own ChatGPT).
+    """
+    if body.tone not in TONES:
+        raise HTTPException(400, f"Unknown tone: {body.tone}")
+    try:
+        content = await extract_link(body.url)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    try:
+        script = await rewrite_script(content, tone=body.tone, language=body.language)
+    except ValueError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"script": script, "tone": body.tone, "language": body.language,
+            "source_title": content.title, "source_url": content.url}
+
+
 @router.post("/plan", status_code=201)
 async def plan(body: PlanRequest):
-    """Step 2 — extract, AI-rewrite into scenes, create project/video and queue generation."""
+    """Step 2b/3 — split the script into scenes, create project/video and queue generation.
+
+    Uses the user's own script when `script` is provided (only structured, never rewritten);
+    otherwise AI-rewrites the source first (legacy one-shot behaviour).
+    """
     if body.tone not in TONES:
         raise HTTPException(400, f"Unknown tone: {body.tone}")
     material = get_material(body.material)
@@ -90,9 +123,19 @@ async def plan(body: PlanRequest):
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     try:
-        plan = await plan_remix_script(
-            content, tone=body.tone, language=body.language, scene_count=body.scene_count
-        )
+        if body.script and body.script.strip():
+            plan = await structure_script(
+                body.script,
+                scene_count=body.scene_count,
+                language=body.language,
+                tone=body.tone,
+                source_url=content.url,
+                source_title=content.title,
+            )
+        else:
+            plan = await plan_remix_script(
+                content, tone=body.tone, language=body.language, scene_count=body.scene_count
+            )
     except ValueError as exc:
         raise HTTPException(502, str(exc)) from exc
 

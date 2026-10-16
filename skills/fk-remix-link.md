@@ -1,9 +1,9 @@
 # fk-remix-link — Remix a Video from a Link
 
 Turn a YouTube / TikTok / Reels / web link into an original rewritten video:
-extract public metadata (oEmbed / OpenGraph / captions), AI-rewrite it into
-scenes in your chosen tone and animation style, generate clips, then build the
-final MP4 with AI voiceover, music and burned-in subtitles.
+extract public metadata (oEmbed / OpenGraph / captions), get a script (yours or
+AI-drafted), split it into scenes, generate clips, then build the final MP4 with
+AI voiceover, music and burned-in subtitles.
 
 Usage: `/fk-remix-link <url> [--tone storytelling] [--style realistic] [--voice template-name] [--scenes 4] [--project <id>] [--orientation VERTICAL]`
 
@@ -27,25 +27,48 @@ Check the result: `title`, `author`, `description`, `captions` (preferred vi, th
 If extraction fails (private/deleted/blocked page), stop and tell the user why —
 do not guess the content.
 
-## Step 2: Plan (extract → AI rewrite → queue generation)
+## Step 2: Script — the user's own words come first
+
+The user writes the script with **their own ChatGPT, in their own style**.
+Two paths:
+
+**A. User pastes their script** (preferred) — save it verbatim and go to step 3.
+The AI will only *split* it into scenes; it never rewrites the user's voice.
+
+**B. AI drafts the script** — when the user has no script yet:
+
+```bash
+curl -s -X POST http://127.0.0.1:8100/api/remix/rewrite \
+  -H "Content-Type: application/json" \
+  -d '{"url":"<URL>","tone":"storytelling","language":"vi"}'
+# Returns: {"script": "...", ...}
+```
+
+Show the draft to the user for editing before continuing.
+
+## Step 3: Scene breakdown + queue generation (plan)
 
 ```bash
 curl -s -X POST http://127.0.0.1:8100/api/remix/plan \
   -H "Content-Type: application/json" \
-  -d '{"url":"<URL>","tone":"storytelling","language":"vi","material":"ghibli","scene_count":4,"orientation":"VERTICAL","voice_template":"<name-or-null>"}'
-# Returns: {"project_id": "...", "video_id": "...", "plan": {"title": "...", "scenes": [...]}, "request_count": N, "voice_template": "..."}
+  -d '{"url":"<URL>","script":"<USER SCRIPT OR AI DRAFT>","tone":"storytelling","language":"vi","material":"ghibli","scene_count":4,"orientation":"VERTICAL","voice_template":"<name-or-null>"}'
+# Returns: {"project_id": "...", "video_id": "...", "plan": {"title": "...", "scenes": [...], "script_source": "user|ai"}, ...}
 ```
 
-This creates the project (unless `--project` given), the video, and 4 scenes with
+- With `script`: the AI only structures it into scenes (action + image/video prompts),
+  keeping the user's narrator wording; `script_source` is `"user"`.
+- Without `script`: one-shot AI rewrite + structuring (`script_source` is `"ai"`).
+
+This creates the project (unless `--project` given), the video, and the scenes with
 `narrator_text` already filled, then queues `GENERATE_IMAGE` + `GENERATE_VIDEO_OMNI`
 for every scene. Requires the Flow extension connected (`GET /health` →
 `extension_connected: true`).
 
-Show the user the rewritten plan (title + per-scene action + narrator text) and
-ask for approval before generation burns credits if the plan looks off — the
-scenes can be edited with `PATCH /api/scenes/{sid}` before generation.
+Show the user the scene breakdown (per-scene action + narrator text) and ask for
+approval before generation burns credits if anything looks off — scenes can be
+edited with `PATCH /api/scenes/{sid}` (see AGENTS.md rule 13) before generation.
 
-## Step 3: Wait for generation
+## Step 4: Wait for generation
 
 ```bash
 curl -s "http://127.0.0.1:8100/api/requests/batch-status?video_id=<VID>&type=GENERATE_VIDEO_OMNI"
@@ -55,7 +78,7 @@ curl -s "http://127.0.0.1:8100/api/requests/batch-status?video_id=<VID>&type=GEN
 Optionally review: `/fk-review-video` (light mode) before finishing, same as the
 standard pipeline.
 
-## Step 4: Build the final MP4 (voiceover + music + subtitles)
+## Step 5: Build the final MP4 (voiceover + music + subtitles)
 
 ```bash
 curl -s -X POST http://127.0.0.1:8100/api/remix/build \
@@ -76,4 +99,5 @@ the final MP4. `music_filename` must exist in the project's music library
 - Every step is idempotent-safe: re-running plan creates a *new* video; build
   requires `narrator_text` on all scenes or it returns 409.
 - Dashboard: the "Remix từ link / Remix from a link" card on the home page runs
-  steps 1–2 in the UI; step 4 runs from here or Post-production.
+  steps 1–3 in the UI (paste link → script box → scene breakdown); step 5 runs
+  from here or Post-production.

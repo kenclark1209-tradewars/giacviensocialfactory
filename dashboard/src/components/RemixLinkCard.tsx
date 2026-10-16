@@ -22,7 +22,9 @@ interface ExtractedContent {
   page_text?: string | null
 }
 interface ToneInfo { vi: string; en: string }
-interface RemixPlanResult { project_id: string; video_id: string; scene_count: number; request_count: number }
+interface RemixScene { action?: string; narrator_text?: string }
+interface RemixPlan { title?: string; scenes: RemixScene[]; script_source?: string }
+interface RemixPlanResult { project_id: string; video_id: string; scene_count: number; request_count: number; plan: RemixPlan }
 
 const RECOMMENDED_STYLES = new Set([
   'realistic', '3d_pixar', 'anime', 'ghibli',
@@ -55,6 +57,15 @@ const STR = {
     creditNote: 'AI rewrites the source into original scenes. Generating uses Google Flow credits.',
     submit: 'Rewrite & create video',
     submitting: 'Rewriting…',
+    scriptLabel: 'Script',
+    scriptHint: 'Paste the script you wrote with your own ChatGPT (in your own style) — or let AI draft one for you to edit.',
+    scriptPlaceholder: 'Paste your rewritten script here…',
+    rewriteWithAI: 'Draft with AI',
+    rewriting: 'Drafting…',
+    scenesTitle: 'Scene breakdown',
+    openPipeline: 'Open pipeline',
+    stepScript: '2. Script',
+    stepOptions: '3. Style & voice',
   },
   vi: {
     title: 'Remix từ link',
@@ -72,8 +83,17 @@ const STR = {
     newProject: 'Project mới (tự động)',
     sceneCount: 'Số cảnh',
     creditNote: 'AI viết lại nguồn thành các cảnh mới hoàn toàn. Thao tác tạo sẽ dùng tín dụng Google Flow.',
-    submit: 'Viết lại & tạo video',
-    submitting: 'Đang viết lại…',
+    submit: 'Phân cảnh & tạo video',
+    submitting: 'Đang phân cảnh…',
+    scriptLabel: 'Kịch bản',
+    scriptHint: 'Dán kịch bản bạn đã viết bằng ChatGPT của mình (theo phong cách của bạn) — hoặc để AI soạn hộ rồi bạn sửa.',
+    scriptPlaceholder: 'Dán kịch bản bạn đã viết lại vào đây…',
+    rewriteWithAI: 'Nhờ AI soạn hộ',
+    rewriting: 'Đang soạn…',
+    scenesTitle: 'Phân cảnh',
+    openPipeline: 'Mở pipeline',
+    stepScript: '2. Kịch bản',
+    stepOptions: '3. Phong cách & giọng đọc',
   },
 } as const
 
@@ -96,6 +116,10 @@ export default function RemixLinkCard({ projects }: { projects: Project[] }) {
   const [sceneCount, setSceneCount] = useState(4)
   const [projectId, setProjectId] = useState('')
   const [orientation, setOrientation] = useState<Orientation>('VERTICAL')
+  const [script, setScript] = useState('')
+  const [rewriting, setRewriting] = useState(false)
+  const [rewriteError, setRewriteError] = useState<string | null>(null)
+  const [planResult, setPlanResult] = useState<RemixPlanResult | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -131,11 +155,29 @@ export default function RemixLinkCard({ projects }: { projects: Project[] }) {
     }
   }
 
+  async function rewriteWithAI() {
+    if (!extracted || rewriting) return
+    setRewriting(true)
+    setRewriteError(null)
+    try {
+      const result = await fetchAPI<{ script: string }>('/api/remix/rewrite', {
+        method: 'POST',
+        body: JSON.stringify({ url: extracted.url, tone, language: lang }),
+      })
+      setScript(result.script)
+    } catch (e) {
+      setRewriteError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRewriting(false)
+    }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!extracted || submitting) return
     setSubmitting(true)
     setError(null)
+    setPlanResult(null)
     try {
       const result = await fetchAPI<RemixPlanResult>('/api/remix/plan', {
         method: 'POST',
@@ -148,9 +190,10 @@ export default function RemixLinkCard({ projects }: { projects: Project[] }) {
           scene_count: sceneCount,
           orientation,
           voice_template: voice || null,
+          script: script.trim() || null,
         }),
       })
-      navigate(`/projects/${result.project_id}?tab=pipeline&video=${result.video_id}`)
+      setPlanResult(result)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -219,6 +262,29 @@ export default function RemixLinkCard({ projects }: { projects: Project[] }) {
               </div>
             </div>
 
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="remix-script" className="text-xs font-semibold">{s.stepScript} · {s.scriptLabel}</label>
+                <Button type="button" size="sm" variant="outline" disabled={rewriting} onClick={rewriteWithAI}>
+                  {rewriting && <Loader2 className="size-3.5 animate-spin" />}
+                  {rewriting ? s.rewriting : s.rewriteWithAI}
+                </Button>
+              </div>
+              <span className="text-[11px]" style={{ color: 'var(--muted)' }}>{s.scriptHint}</span>
+              <textarea
+                id="remix-script"
+                value={script}
+                onChange={e => setScript(e.target.value)}
+                placeholder={s.scriptPlaceholder}
+                rows={6}
+                maxLength={8000}
+                className="w-full rounded-md px-3 py-2 text-sm outline-none focus:ring-1 resize-y"
+                style={controlStyle}
+              />
+              {rewriteError && <p role="alert" className="text-xs break-words" style={{ color: 'var(--red)' }}>{rewriteError}</p>}
+            </div>
+
+            <div className="text-xs font-semibold" style={{ color: 'var(--text)' }}>{s.stepOptions}</div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs">{s.tone}</label>
@@ -276,6 +342,36 @@ export default function RemixLinkCard({ projects }: { projects: Project[] }) {
               </Button>
             </div>
           </form>
+        )}
+
+        {planResult && (
+          <div className="flex flex-col gap-3 rounded-md p-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold" style={{ color: 'var(--text)' }}>
+                {s.scenesTitle} · {planResult.plan.title || ''} ({planResult.scene_count})
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => navigate(`/projects/${planResult.project_id}?tab=pipeline&video=${planResult.video_id}`)}
+              >
+                {s.openPipeline}
+              </Button>
+            </div>
+            <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+              {planResult.plan.scenes.map((scene, i) => (
+                <div key={i} className="rounded-md p-2.5 flex flex-col gap-1.5" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+                  <span className="text-[11px] font-semibold" style={{ color: 'var(--accent)' }}>
+                    {lang === 'vi' ? `Cảnh ${i + 1}` : `Scene ${i + 1}`}
+                  </span>
+                  {scene.action && <span className="text-[11px]" style={{ color: 'var(--text)' }}>{scene.action}</span>}
+                  {scene.narrator_text && (
+                    <span className="text-[11px] italic leading-snug" style={{ color: 'var(--muted)' }}>“{scene.narrator_text}”</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

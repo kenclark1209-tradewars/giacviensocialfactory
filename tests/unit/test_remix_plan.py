@@ -108,3 +108,54 @@ def test_recommended_materials_exist():
     for material_id in remix_plan.RECOMMENDED_MATERIALS:
         assert get_material(material_id), f"missing material: {material_id}"
     assert len(remix_plan.RECOMMENDED_MATERIALS) == 8
+
+
+async def test_rewrite_script_returns_text(monkeypatch):
+    from agent.services.remix_plan import rewrite_script
+    caller = AsyncMock(return_value=json.dumps({"script": "Mở đầu hấp dẫn. Thân bài chi tiết. Kết thúc ấn tượng."}))
+    monkeypatch.setattr(remix_plan.ai_tasks, "complete", caller)
+    script = await rewrite_script(_content(), tone="storytelling", language="vi")
+    assert "Mở đầu" in script
+    assert caller.call_args.kwargs["schema"] == remix_plan.SCRIPT_SCHEMA
+
+
+async def test_rewrite_script_rejects_unknown_tone():
+    from agent.services.remix_plan import rewrite_script
+    with pytest.raises(ValueError, match="Giọng điệu"):
+        await rewrite_script(_content(), tone="nope")
+
+
+async def test_rewrite_script_raises_on_empty(monkeypatch):
+    from agent.services.remix_plan import rewrite_script
+    caller = AsyncMock(return_value=json.dumps({"script": "   "}))
+    monkeypatch.setattr(remix_plan.ai_tasks, "complete", caller)
+    with pytest.raises(ValueError, match="không tạo được kịch bản"):
+        await rewrite_script(_content())
+
+
+async def test_structure_script_preserves_user_voice(monkeypatch):
+    from agent.services.remix_plan import structure_script
+    user_text = "Đây là câu mở đầu của tôi. Đây là đoạn thân bài của tôi."
+    caller = AsyncMock(return_value=json.dumps({
+        "title": "T",
+        "scenes": [
+            {"action": f"Action {i}", "image_prompt": f"img {i}",
+             "video_prompt": "0-3s: Move. 3-6s: Continue. 6-8s: Settle.",
+             "narrator_text": user_text}
+            for i in range(4)
+        ],
+    }))
+    monkeypatch.setattr(remix_plan.ai_tasks, "complete", caller)
+    plan = await structure_script(user_text * 3, scene_count=4, language="vi")
+    assert plan["script_source"] == "user"
+    assert len(plan["scenes"]) == 4
+    # User wording preserved (not rewritten).
+    assert plan["scenes"][0]["narrator_text"].startswith("Đây là câu mở đầu của tôi.")
+    prompt = caller.call_args.args[1]
+    assert "do NOT rewrite the author's voice" in prompt
+
+
+async def test_structure_script_rejects_short_script():
+    from agent.services.remix_plan import structure_script
+    with pytest.raises(ValueError, match="quá ngắn"):
+        await structure_script("ngắn", scene_count=4)

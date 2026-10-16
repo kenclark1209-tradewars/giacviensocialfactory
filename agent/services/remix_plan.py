@@ -104,6 +104,112 @@ def _source_brief(content: LinkContent) -> str:
     return "\n".join(parts) or "(no extractable text; invent nothing, write a generic intro scene)"
 
 
+def _clamp_narrators(scenes: list[dict], max_words: int, scene_count: int) -> list[dict]:
+    """Defensively trim narrator text so the voiceover fits the scene audio."""
+    for scene in scenes:
+        text = (scene.get("narrator_text") or "").strip()
+        words = text.split()
+        if len(words) > max_words:
+            scene["narrator_text"] = " ".join(words[:max_words])
+    return scenes[:scene_count]
+
+
+SCRIPT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "script": {"type": "string", "description": "Full rewritten script as continuous text"},
+    },
+}
+
+
+async def rewrite_script(content: LinkContent, *, tone: str = "storytelling", language: str = "vi") -> str:
+    """AI rewrites the extracted content into a full continuous script (not split into scenes).
+
+    Used to fill the script box for the user to review/edit — or skipped entirely
+    when the user pastes their own script written with their own ChatGPT.
+    """
+    if tone not in TONES:
+        raise ValueError(f"Giọng điệu không hợp lệ: {tone}")
+    language = (language or "vi").lower()
+    prompt = f"""Rewrite the following source material into an ORIGINAL short-video script.
+Write in {language} as continuous flowing text (paragraphs, no scene labels).
+Do NOT copy sentences from the source; keep only the core ideas and facts, retold in your own words.
+Tone: {TONES[tone]["guidance"]}
+Structure the script with a hook opening, a developing middle and a payoff ending.
+Length: about 120-180 words. Never invent dates, names, or statistics not present in the source.
+
+SOURCE MATERIAL:
+{_source_brief(content)}
+
+Return ONLY the JSON object matching the schema."""
+
+    role = cli_providers.resolve_role("scriptwriter")
+    raw = await ai_tasks.complete(role, prompt, schema=SCRIPT_SCHEMA)
+    try:
+        script = json.loads(raw).get("script", "").strip()
+    except json.JSONDecodeError as exc:
+        raise ValueError("AI trả về kịch bản không đúng định dạng. Hãy thử lại.") from exc
+    if not script:
+        raise ValueError("AI không tạo được kịch bản. Hãy thử lại.")
+    return script
+
+
+async def structure_script(
+    script_text: str,
+    *,
+    scene_count: int = 4,
+    language: str = "vi",
+    tone: str = "storytelling",
+    source_url: str | None = None,
+    source_title: str | None = None,
+) -> dict:
+    """Split a user-written (or AI-written) script into scenes WITHOUT rewriting the voice.
+
+    The narrator_text keeps the user's own wording (trimmed only to fit the audio);
+    the AI only adds visual direction: action, image_prompt, video_prompt.
+    """
+    script_text = (script_text or "").strip()
+    if len(script_text) < 20:
+        raise ValueError("Kịch bản quá ngắn. Hãy dán kịch bản đầy đủ của bạn.")
+    if not 1 <= scene_count <= 8:
+        raise ValueError("Số cảnh phải từ 1 đến 8.")
+    language = (language or "vi").lower()
+    max_words = NARRATOR_MAX_WORDS.get(language, 22)
+
+    prompt = f"""Split the following script into exactly {scene_count} scenes for a short video.
+Write in {language}. IMPORTANT: do NOT rewrite the author's voice — keep each scene's
+`narrator_text` as close as possible to the author's own words, only trimming to
+{max_words} words MAX per scene (hard limit so it fits the scene audio).
+For each scene, add visual direction:
+- `action`: one clear ACTION for the visual (never describe character appearance).
+- `image_prompt`: still-image prompt for frame 0.
+- `video_prompt`: 8-second sub-clip timing like "0-3s: [action]. 3-6s: [action]. 6-8s: [action]."
+Keep the story arc: hook -> development -> climax -> payoff.
+
+SCRIPT:
+{script_text[:4000]}
+
+Return ONLY the JSON object matching the schema."""
+
+    role = cli_providers.resolve_role("scriptwriter")
+    raw = await ai_tasks.complete(role, prompt, schema=PLAN_SCHEMA)
+    try:
+        plan = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("AI trả về phân cảnh không đúng định dạng. Hãy thử lại.") from exc
+    scenes = plan.get("scenes") or []
+    if not scenes:
+        raise ValueError("AI không chia được cảnh nào. Hãy thử lại.")
+    plan["scenes"] = _clamp_narrators(scenes, max_words, scene_count)
+    plan["title"] = plan.get("title") or (source_title or "Remix")[:72]
+    plan["tone"] = tone
+    plan["language"] = language
+    plan["source_url"] = source_url
+    plan["source_title"] = source_title
+    plan["script_source"] = "user"
+    return plan
+
+
 async def plan_remix_script(
     content: LinkContent,
     *,
@@ -145,15 +251,10 @@ RULES:
     scenes = plan.get("scenes") or []
     if not scenes:
         raise ValueError("AI không tạo được cảnh nào. Hãy thử lại với link khác.")
-    # Clamp narrator length defensively; the model sometimes overshoots.
-    for scene in scenes:
-        text = (scene.get("narrator_text") or "").strip()
-        words = text.split()
-        if len(words) > max_words:
-            scene["narrator_text"] = " ".join(words[:max_words])
-    plan["scenes"] = scenes[:scene_count]
+    plan["scenes"] = _clamp_narrators(scenes, max_words, scene_count)
     plan["tone"] = tone
     plan["language"] = language
     plan["source_url"] = content.url
     plan["source_title"] = content.title
+    plan["script_source"] = "ai"
     return plan
