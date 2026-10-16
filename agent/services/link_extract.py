@@ -319,6 +319,17 @@ async def _extract_generic(client: httpx.AsyncClient, url: str, platform: str) -
     return content
 
 
+async def _resolve_final_url(client: httpx.AsyncClient, url: str) -> str:
+    """Follow redirects to the canonical URL (e.g. vt.tiktok.com short links)."""
+    try:
+        resp = await client.head(url, timeout=FETCH_TIMEOUT_S, follow_redirects=True)
+        if resp.status_code < 400:
+            return str(resp.url)
+    except httpx.HTTPError as exc:
+        logger.debug("HEAD redirect resolve failed for %s: %s", url, exc)
+    return url
+
+
 async def _extract_oembed(client: httpx.AsyncClient, url: str, platform: str, endpoint: str) -> LinkContent | None:
     from urllib.parse import quote
 
@@ -361,6 +372,8 @@ async def extract_link(url: str, *, use_cache: bool = True) -> LinkContent:
             content.captions = captions
             content.captions_lang = lang
         elif platform == "tiktok":
+            if urlparse(url).netloc.lower() in ("vt.tiktok.com", "vm.tiktok.com", "www.vt.tiktok.com"):
+                url = await _resolve_final_url(client, url)
             content = await _extract_oembed(client, url, platform, "https://www.tiktok.com/oembed")
             if content is None:
                 content = await _extract_generic(client, url, platform)

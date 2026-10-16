@@ -171,3 +171,48 @@ def test_link_content_to_dict_roundtrip():
     assert data["url"] == "https://example.com"
     assert data["platform"] == "web"
     assert data["title"] == "T"
+
+
+async def test_resolve_final_url_follows_redirects(monkeypatch):
+    class FakeResp:
+        status_code = 200
+        url = "https://www.tiktok.com/@user/video/1234567890123456789"
+
+    class FakeClient:
+        async def head(self, url, **kwargs):
+            assert "vt.tiktok.com" in url
+            return FakeResp()
+
+    resolved = await link_extract._resolve_final_url(FakeClient(), "https://vt.tiktok.com/ZSgFSY5Un/")
+    assert resolved == "https://www.tiktok.com/@user/video/1234567890123456789"
+
+
+async def test_resolve_final_url_falls_back_on_error(monkeypatch):
+    import httpx
+
+    class FakeClient:
+        async def head(self, url, **kwargs):
+            raise httpx.ConnectError("nope")
+
+    url = "https://vt.tiktok.com/ZSgFSY5Un/"
+    assert await link_extract._resolve_final_url(FakeClient(), url) == url
+
+
+async def test_extract_tiktok_short_link_resolves_canonical(monkeypatch):
+    await _no_network_guard(monkeypatch)
+    canonical = "https://www.tiktok.com/@user/video/1234567890123456789"
+
+    async def fake_resolve(client, url):
+        return canonical
+
+    async def fake_json(client, url):
+        assert "tiktok.com/oembed" in url and "vt.tiktok.com" not in url
+        return {"title": "T", "author_name": "A", "thumbnail_url": "https://x/y.jpg"}
+
+    monkeypatch.setattr(link_extract, "_resolve_final_url", fake_resolve)
+    monkeypatch.setattr(link_extract, "_get_json", fake_json)
+
+    content = await extract_link("https://vt.tiktok.com/ZSgFSY5Un/", use_cache=False)
+    assert content.video_id == "1234567890123456789"
+    assert content.url == canonical
+    assert content.title == "T"
