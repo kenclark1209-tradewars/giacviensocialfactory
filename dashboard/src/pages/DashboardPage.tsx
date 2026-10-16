@@ -11,6 +11,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardAction }
 import { Progress } from '../components/ui/progress'
 import { Badge } from '../components/ui/badge'
 import QuickCreateCard from '../components/QuickCreateCard'
+import RemixLinkCard from '../components/RemixLinkCard'
 
 type VideoWithProject = Video & { projectName: string; projectId: string }
 type T = (key: TranslationKey, params?: Record<string, string | number>) => string
@@ -151,6 +152,7 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-5">
       <QuickCreateCard projects={projects} />
+      <RemixLinkCard projects={projects} />
       {/* KPI cards */}
       <div className="grid grid-cols-4 gap-3.5">
         {kpis.map(k => (
