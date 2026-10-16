@@ -138,6 +138,35 @@ CREATE TABLE IF NOT EXISTS request (
     project_id    TEXT REFERENCES project(id) ON DELETE CASCADE,
     video_id      TEXT REFERENCES video(id) ON DELETE CASCADE,
     scene_id      TEXT REFERENCES scene(id) ON DELETE CASCADE,
+
+-- ── Social publish ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS publish_account (
+    platform      TEXT PRIMARY KEY,          -- youtube | facebook | instagram | tiktok
+    account_id    TEXT,
+    account_name  TEXT,
+    access_token  TEXT NOT NULL,
+    refresh_token TEXT,
+    expires_at    TEXT,
+    scopes        TEXT,
+    extra         TEXT,                      -- JSON: page id, ig user id, ...
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS publish_job (
+    id            TEXT PRIMARY KEY,
+    video_id      TEXT NOT NULL REFERENCES video(id) ON DELETE CASCADE,
+    platform      TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'QUEUED'
+                  CHECK(status IN ('QUEUED','UPLOADING','PROCESSING','DONE','FAILED')),
+    external_id   TEXT,
+    external_url  TEXT,
+    caption       TEXT,
+    error         TEXT,
+    created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_publish_job_video ON publish_job(video_id);
     character_id  TEXT REFERENCES character(id) ON DELETE CASCADE,
     type          TEXT NOT NULL CHECK(type IN ('GENERATE_IMAGE','REGENERATE_IMAGE','EDIT_IMAGE','GENERATE_VIDEO','GENERATE_VIDEO_OMNI','REGENERATE_VIDEO','GENERATE_VIDEO_REFS','UPSCALE_VIDEO','GENERATE_CHARACTER_IMAGE','REGENERATE_CHARACTER_IMAGE','EDIT_CHARACTER_IMAGE')),
     orientation   TEXT CHECK(orientation IN ('VERTICAL','HORIZONTAL')),
@@ -311,6 +340,29 @@ CREATE INDEX IF NOT EXISTS idx_request_scene ON request(scene_id);
     negative_prompt TEXT, scene_prefix TEXT, lighting TEXT DEFAULT 'Studio lighting, highly detailed',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))""")
             logger.info("Migrated: created material table")
+        # Migration: social publish tables
+        for _tbl, _ddl in (
+            ("publish_account", """CREATE TABLE publish_account (
+    platform TEXT PRIMARY KEY, account_id TEXT, account_name TEXT,
+    access_token TEXT NOT NULL, refresh_token TEXT, expires_at TEXT,
+    scopes TEXT, extra TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))"""),
+            ("publish_job", """CREATE TABLE publish_job (
+    id TEXT PRIMARY KEY, video_id TEXT NOT NULL REFERENCES video(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'QUEUED'
+      CHECK(status IN ('QUEUED','UPLOADING','PROCESSING','DONE','FAILED')),
+    external_id TEXT, external_url TEXT, caption TEXT, error TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))"""),
+        ):
+            cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (_tbl,))
+            if not await cursor.fetchone():
+                await db.execute(_ddl)
+                logger.info("Migrated: created %s table", _tbl)
+        cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_publish_job_video'")
+        if not await cursor.fetchone():
+            await db.execute("CREATE INDEX idx_publish_job_video ON publish_job(video_id)")
         await db.commit()
     logger.info("Database initialized at %s", DB_PATH)
 

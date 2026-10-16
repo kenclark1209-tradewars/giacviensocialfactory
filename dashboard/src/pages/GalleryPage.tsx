@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchAPI, resolveMediaUrl } from '../api/client'
 import type { Project, Video, Scene } from '../types'
 import VideoGallery from '../components/gallery/VideoGallery'
+import PublishModal from '../components/PublishModal'
 import { useTranslation } from '../i18n/useTranslation'
 import { useWebSocketContext } from '../api/useWebSocketContext'
 
@@ -21,6 +22,7 @@ export default function GalleryPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<string>('')
   const [videos, setVideos] = useState<Video[]>([])
+  const [publishVideo, setPublishVideo] = useState<Video | null>(null)
   const [scenes, setScenes] = useState<(Scene & { videoTitle: string; orientation: string | null })[]>([])
   const [loading, setLoading] = useState(false)
   const refreshAttempts = useRef(new Map<string, number>())
@@ -136,7 +138,12 @@ export default function GalleryPage() {
                     <div key={video.id} className="rounded-lg p-3 flex flex-col gap-2" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
                       <div className="text-xs font-semibold truncate">{video.title}</div>
                       <video src={src} poster={poster} controls preload="metadata" className="w-full rounded-md" style={{ maxHeight: 340, background: '#000' }} />
-                      <a href={src ?? undefined} download={`${video.id}.mp4`} className="text-xs" style={{ color: 'var(--accent)' }}>{t('gallery.downloadVideo')}</a>
+                      <div className="flex gap-3 items-center">
+                        <a href={src ?? undefined} download={`${video.id}.mp4`} className="text-xs" style={{ color: 'var(--accent)' }}>{t('gallery.downloadVideo')}</a>
+                        <button onClick={() => setPublishVideo(video)} className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>
+                          Đăng lên ↑
+                        </button>
+                      </div>
                     </div>
                   )
                 })}
@@ -145,6 +152,9 @@ export default function GalleryPage() {
           )}
           <VideoGallery scenes={scenes} />
         </>
+      )}
+      {publishVideo && (
+        <PublishModal videoId={publishVideo.id} videoTitle={publishVideo.title} onClose={() => setPublishVideo(null)} />
       )}
     </div>
   )

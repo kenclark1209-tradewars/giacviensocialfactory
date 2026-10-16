@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add social publish: after a video is built, the "Đăng lên ↑" button on each
+  finished Gallery video opens a modal to auto-post to YouTube, Facebook
+  (Page), TikTok and Instagram (Reels) — per-platform connect (OAuth),
+  caption, privacy options, live job status and post links
+  (`POST /api/publish`, `GET /api/publish/platforms|jobs`, `agent/services/publishers/`,
+  `PublishModal`, `docs/PUBLISH.md`, `/fk-publish` skill).
 - Add "Remix from a link" pipeline: paste a YouTube / TikTok / Reels / web link
   to extract public metadata (oEmbed, OpenGraph, captions), bring your own
   script (e.g. written with your own ChatGPT — the AI only splits it into
